@@ -1,0 +1,62 @@
+<?php
+
+function sonycl_gameplay_install() {
+	// Create my tables.
+	drupal_install_schema('sonycl_gameplay');
+}
+
+function sonycl_gameplay_uninstall() {
+	// Drop my tables.
+	drupal_uninstall_schema('sonycl_gameplay');
+}
+
+function sonycl_gameplay_schema() {
+	
+	$schema['sonycl_gameplay_top_scores'] = array(
+		'description' => t('Stores site types of the social_site module.'),
+		'fields' => array(
+			'id' => array(
+		        'description' => t('My unique identifier'),
+		        'type' => 'serial',
+		        'unsigned' => true,
+		        'not null' => true,
+		      ),
+			'name' => array(
+				'description' => 'The human-readable name of this type.',
+				'type' => 'varchar',
+				'length' => 12,
+				'not null' => TRUE,
+				'default' => ''
+			),
+			'score' => array(
+				'description' => 'The human-readable name of this type.',
+				'type' => 'varchar',
+				'length' => 12,
+				'not null' => TRUE,
+				'default' => ''
+			),
+			'level' => array(
+				'description' => 'The human-readable name of this type.',
+				'type' => 'varchar',
+				'length' => 50,
+				'not null' => TRUE,
+				'default' => ''
+			),
+			'timestamp' => array(
+				'description' => 'The UNIX time stamp representing when the flag was set.',
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'default' => 0,
+				'disp-size' => 11,
+			),
+		),
+		'primary key' => array('id'),
+	);
+	
+	return $schema;
+	
+}
+
+
+?>

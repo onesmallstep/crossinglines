@@ -1,0 +1,2211 @@
+<?php
+// $Id$
+
+/**
+* @file
+* Crossing Lines - Gameplay module file
+*
+* This module manages gameplayuration settings for the Crossing Lines application
+*/
+
+// Default Constants
+
+
+
+
+/**
+ * Implement hook_help().
+ */
+function sonycl_gameplay_help($path, $arg) {
+	if ($path == 'admin/help#sonycl_gameplay') {
+		return t('Crossing Lines - Configuration help area.');
+	}
+}
+
+/**
+ * Implementation of hook_init().
+ */
+
+function sonycl_gameplay_init() {
+	//drupal_add_js(drupal_get_path('module', 'sonycl_gameplay').'/includes/js/prototype.min.js');
+	drupal_add_js(drupal_get_path('module', 'sonycl_gameplay').'/includes/js/jquery.pulse.min.js');
+	drupal_add_js(drupal_get_path('module', 'sonycl_gameplay').'/includes/js/jquery.mobile.min.js');
+	drupal_add_js(drupal_get_path('module', 'sonycl_gameplay').'/includes/js/sonycl_gameplay.js');
+	
+	// Add AJAX library on all pages
+	drupal_add_library('system', 'drupal.ajax');
+	
+	global $base_url; global $base_path;
+}
+
+/**
+* Implement hook_menu().
+*/
+function sonycl_gameplay_menu() {
+	$items = array();
+	
+	$items['case/location'] = array(
+		  'page callback' => 'sonycl_gameplay_location_response',
+		  'access callback' => 'user_access',
+		  'access arguments' => array('access content'),
+		  'type' => MENU_CALLBACK
+	);
+	
+	$items['case/location/agent-intel'] = array(
+		  'page callback' => 'sonycl_gameplay_agent_intel_response',
+		  'access callback' => 'user_access',
+		  'access arguments' => array('access content'),
+		  'type' => MENU_CALLBACK
+	);
+	
+	$items['case/location/social-intel'] = array(
+		  'page callback' => 'sonycl_gameplay_social_intel_response',
+		  'access callback' => 'user_access',
+		  'access arguments' => array('access content'),
+		  'type' => MENU_CALLBACK
+	);
+	
+	$items['case/location/geo-intel'] = array(
+		  'page callback' => 'sonycl_gameplay_geo_intel_response',
+		  'access callback' => 'user_access',
+		  'access arguments' => array('access content'),
+		  'type' => MENU_CALLBACK
+	);
+	
+	$items['case/location/solve-location'] = array(
+		  'page callback' => 'sonycl_gameplay_solve_location_response',
+		  'access callback' => 'user_access',
+		  'access arguments' => array('access content'),
+		  'type' => MENU_CALLBACK
+	);
+	
+	$items['case/location/debrief'] = array(
+		  'page callback' => 'sonycl_gameplay_solve_mission_response',
+		  'access callback' => 'user_access',
+		  'access arguments' => array('access content'),
+		  'type' => MENU_CALLBACK
+	);
+	
+	$items['level-select/level'] = array(
+		  'page callback' => 'sonycl_gameplay_level_select_process',
+		  'access callback' => 'user_access',
+		  'access arguments' => array('access content'),
+		  'type' => MENU_CALLBACK
+	);
+	
+	$items['level-select'] = array(
+		  'page callback' => 'sonycl_gameplay_level_select',
+		  'access callback' => 'user_access',
+		  'access arguments' => array('access content'),
+		  'type' => MENU_CALLBACK
+	);
+	
+	$items['case/overlay/caseinfo'] = array(
+		  'page callback' => 'sonycl_gameplay_overlay_caseinfo',
+		  'access callback' => 'user_access',
+		  'access arguments' => array('access content'),
+		  'type' => MENU_CALLBACK
+	);
+	
+	$items['case/overlay/about'] = array(
+		  'page callback' => 'sonycl_gameplay_overlay_about',
+		  'access callback' => 'user_access',
+		  'access arguments' => array('access content'),
+		  'type' => MENU_CALLBACK
+	);
+	
+	$items['case/overlay/leaderboard'] = array(
+		  'page callback' => 'sonycl_gameplay_overlay_leaderboard',
+		  'access callback' => 'user_access',
+		  'access arguments' => array('access content'),
+		  'type' => MENU_CALLBACK
+	);
+	
+	return $items;
+}
+
+/*
+ * Implement hook_load().
+ */
+function sonycl_gameplay_node_load($nodes, $types){
+	 foreach ($nodes as $node):
+	 	switch($node->type):
+	 		case 'case':
+	 			
+		 		// Add Facebook SDK
+		 		//drupal_add_js('http://connect.facebook.net/en_US/all.js', 'external');
+		 		
+		 		// New Locations
+		 		$_SESSION['locations'] = sonycl_gameplay_get_locations();
+		 		$_SESSION['criminal'] = $node->field_criminal_reference['und'][0]['target_id'];
+		 		$_SESSION['case-info'] = '';
+		 		$_SESSION['case'] = $node->nid;
+		 		
+		 		//sonycl_gameplay_options_menu();
+		 		break;
+		 	case 'location':
+		 		/*
+		 		$_SESSION['locations'][$_SESSION['progress']]['id'] = $node->nid;
+		 		$_SESSION['locations'][$_SESSION['progress']]['name'] = $node->title;
+		 		$_SESSION['locations'][$_SESSION['progress']]['points'] = 0;
+		 		$_SESSION['locations'][$_SESSION['progress']]['available-guesses'] = 3;
+		 		*/
+		 		break;
+		 	default:
+		 endswitch;
+	 endforeach;
+}
+
+/**
+ *
+ * Reset all session data for a new game
+ *
+ */
+function sonycl_gameplay_reset_session(){
+	$_SESSION = array();
+	unset($_SESSION['locations']);
+	unset($_SESSION['progress']);
+	unset($_SESSION['level']);
+	$_SESSION['lives'] = 2;
+}
+
+/********************************************************
+// Section: Level Selection
+/*******************************************************/
+/**
+ *
+ * Set the gameplay level and forward a user on to a random case
+ *
+ * @param	string	$level		The requested gameplay level
+ * @return  case	redirect	The randomly selected case
+ *
+ */
+function sonycl_gameplay_level_select(){
+
+	global $base_url;
+
+	/*
+	if(!isset($_SESSION['safari'])):
+		$safari_pass = true;
+	else:
+		$safari_pass = false;
+	endif;
+	*/
+
+	// Reset Session Data
+	header ( "p3p:CP=\"IDC DSP COR ADM DEVi TAIi PSA PSD IVAi IVDi CONi HIS OUR IND CNT\"");
+	
+
+	$levels = array(
+		'novice' => array(
+			'machine' => 'novice',
+			'label' => variable_get('sonycl_config_game_levels_novice_label'),
+			'description' => variable_get('sonycl_config_game_levels_novice_label_description'),
+			'time' => variable_get('sonycl_config_game_levels_novice_time_limit'),
+		),
+		'intermediate' => array(
+			'machine' => 'intermediate',
+			'label' => variable_get('sonycl_config_game_levels_intermediate_label'),
+			'description' => variable_get('sonycl_config_game_levels_intermediate_label_description'),
+			'time' => variable_get('sonycl_config_game_levels_intermediate_time_limit'),
+		),
+		'advanced' => array(
+			'machine' => 'advanced',
+			'label' => variable_get('sonycl_config_game_levels_advanced_label'),
+			'description' => variable_get('sonycl_config_game_levels_advanced_label_description'),
+			'time' => variable_get('sonycl_config_game_levels_advanced_time_limit'),
+		),
+	);
+	
+	$rows = array();
+	foreach($levels as $entity):
+		$level = array(
+			'#prefix' => '<a href="'.$base_url.'/level-select/level/'.$entity['machine'].'" class="cl-choose-level-choice cl-choose-level-'.$entity['machine'].'">',
+			'#suffix' => '</a>',
+			'content' => array(
+				array (
+					'#prefix' => '<span class="cl-choose-level-title">',
+					'#suffix' => '</span>',
+					'#markup' => $entity['label'],
+				),
+				array (
+					'#prefix' => '<span class="cl-choose-level-type">',
+					'#suffix' => '</span>',
+					'#markup' => $entity['description'],
+				),
+				array (
+					'#prefix' => '<span class="cl-choose-level-time">',
+					'#suffix' => '</span>',
+					'#markup' => $entity['time']/60 . ' ' . variable_get('sonycl_config_game_levels_misc_time_limit_interval'),
+				),
+			),
+		);
+		$rows[] = $level;
+	endforeach;
+	
+	
+	
+	$output = array(
+		'#prefix' => '<div class="cl-splash">',
+		'#suffix' => '</div>',
+		'head' => array(
+			'#prefix' => '<h1>',
+			'#suffix' => '</h1>',
+			'#markup' => variable_get('sonycl_config_intro_your_mission_headline'),
+		),
+		'body' => array(
+			'#prefix' => '<p>',
+			'#suffix' => '</p>',
+			'#markup' => variable_get('sonycl_config_intro_your_mission_description'),
+		),
+		'subhead' => array(
+			'#prefix' => '<h2>',
+			'#suffix' => '</h2>',
+			'#markup' => variable_get('sonycl_config_game_levels_misc_choose_level'),
+		),
+		'select' => array(
+			'#prefix' => '<div class="cl-choose-level">',
+			'#suffix' => '</div>',
+			'content' => $rows,
+		),
+	);
+	
+	if(preg_match("/safari/i",$_SERVER['HTTP_USER_AGENT']) == true && preg_match("/chrome/i",$_SERVER['HTTP_USER_AGENT']) == false):
+		if($_GET['reloaded'] == 'true'):
+			if (empty($_COOKIE['cl'])):
+				$output['link'] = array(
+					'#markup' => '<a class="cl-launch-game" href="'.$base_url.'/framed.php" target="_blank">'.variable_get('sonycl_config_intro_launch_game').'</a>',
+				);
+				unset($output['subhead']);
+				unset($output['select']);
+			endif;
+		else:
+			setcookie('cl', 'pass',  time()+60*60*24*30);
+			header("Location: $base_url?reloaded=true");
+		endif;
+	endif;
+	
+	return $output;
+}
+
+/**
+ *
+ * Set the gameplay level and forward a user on to a random case
+ *
+ * @param	string	$level		The requested gameplay level
+ * @return  case	redirect	The randomly selected case
+ *
+ */
+function sonycl_gameplay_level_select_process($level){
+
+	sonycl_gameplay_reset_session();
+
+	switch($level):
+		case 'novice':
+			$_SESSION['level'] = 0;
+			$_SESSION['time-limit'] = variable_get('sonycl_config_game_levels_novice_time_limit');
+			$_SESSION['point-multiplier'] = variable_get('sonycl_config_game_levels_novice_point_multiplier');
+			$_SESSION['solve-options'] = variable_get('sonycl_config_game_levels_novice_solve_options');
+			break;
+		case 'intermediate':
+			$_SESSION['level'] = 1;
+			$_SESSION['time-limit'] = variable_get('sonycl_config_game_levels_intermediate_time_limit');
+			$_SESSION['point-multiplier'] = variable_get('sonycl_config_game_levels_intermediate_point_multiplier');
+			$_SESSION['solve-options'] = variable_get('sonycl_config_game_levels_intermediate_solve_options');
+			break;
+		case 'advanced':
+			$_SESSION['level'] = 2;
+			$_SESSION['time-limit'] = variable_get('sonycl_config_game_levels_advanced_time_limit');
+			$_SESSION['point-multiplier'] = variable_get('sonycl_config_game_levels_advanced_point_multiplier');
+			$_SESSION['solve-options'] = variable_get('sonycl_config_game_levels_advanced_solve_options');
+			break;
+		default:
+			$_SESSION['level'] = 0;
+	endswitch;
+	
+	$query = db_select('node','n');
+	$query->fields('n', array('nid'));
+	$query->condition('n.type','case','=');
+	$query->orderRandom();
+	$query->range(0,1);
+	$result = $query->execute();
+	foreach($result as $record):
+		$nid = $record->nid;
+	endforeach;
+	unset($query); unset($result);
+	
+	drupal_goto('node/'.$record->nid);
+}
+
+/**
+ *
+ * Get the number of seconds a location should last per level
+ *
+ * @return  integer	$time	The number of seconds
+ *
+ */
+function sonycl_gameplay_get_level_time(){
+	switch($_SESSION['level']):
+		case 0:
+			$time = variable_get('sonycl_config_game_levels_novice_time_limit');
+			break;
+		case 1:
+			$time = variable_get('sonycl_config_game_levels_intermediate_time_limit');
+			break;
+		case 2:
+			$time = variable_get('sonycl_config_game_levels_advanced_time_limit');
+			break;
+		default:
+			$time = variable_get('sonycl_config_game_levels_novice_time_limit');
+	endswitch;
+	
+	return $time;
+}
+
+
+/********************************************************
+// Section: Location Rendering
+/*******************************************************/
+
+/**
+ *
+ * Ajax response with a rendered location node
+ *
+ * @param	number	$nid		The Node ID of the location to load
+ * @param	string	$type		If JavaScript is enabled used AJAX
+ * @return  markup	$output		The rendered location node || No JavaScript markup
+ *
+ */
+function sonycl_gameplay_location_response($type = 'ajax'){
+
+	global $base_url;
+
+	$_SESSION['progress'] = ( isset($_SESSION['progress']) ) ? $_SESSION['progress'] + 1 : 0;
+	if( $type == 'ajax' ):
+		$output = sonycl_gameplay_render_node($_SESSION['locations'][$_SESSION['progress']]['nid'], TRUE);
+		
+		$guess = array(
+			'#prefix' => '<div class="cl-guess-location" style="display:none;"><div class="spacer"></div><div class="guessbox">',
+			'#suffix' => '</div></div>',
+			'clue' => drupal_get_form('sonycl_gameplay_solve_location_form'),
+		);
+		
+		
+		$agent_node = node_load(225); // Louis
+		
+		switch($_SESSION['progress']):
+			case 0:
+				$criminal_node = node_load($_SESSION['criminal']);
+				$start_message = variable_get('sonycl_config_location_one_start');
+				$_SESSION['case-info']['header'] = '<span class="header"><label>'.variable_get('sonycl_config_intro_icc_report_name').':</label><span>'.variable_get('sonycl_config_intro_icc_report_unknown').'</span></span>';
+				$_SESSION['case-info']['content'] = '<span class="date">'.format_date(time(), 'sony').'</span><span class="info">'.$criminal_node->field_criminal_info_1['und'][0]['value'].'</span>';
+				$_SESSION['case-info']['marquee'] = $_SESSION['case-info']['header'].$_SESSION['case-info']['content'];
+				unset($criminal_node);
+				break;
+			case 1:
+				$criminal_node = node_load($_SESSION['criminal']);
+				$start_message = $criminal_node->field_criminal_info_2['und'][0]['value'] .' '. variable_get('sonycl_config_location_two_start');
+				$_SESSION['case-info']['header'] = '<span class="header"><label>'.variable_get('sonycl_config_intro_icc_report_name').':</label><span>'.$criminal_node->title.' '.$criminal_node->field_moniker['und'][0]['value'].'</span></span>';
+				$_SESSION['case-info']['content'] .= '<span class="date">'.format_date(time() + 60*60*34, 'sony').'</span><span class="info">'.$criminal_node->field_criminal_info_2['und'][0]['value'].'</span>';
+				
+				$_SESSION['case-info']['marquee'] = $_SESSION['case-info']['header'].'<span class="date">'.format_date(time() + 60*60*34, 'sony').'</span><span class="info">'.$criminal_node->field_criminal_info_2['und'][0]['value'].'</span>';
+				unset($criminal_node);
+				break;
+			case 2:
+				$criminal_node = node_load($_SESSION['criminal']);
+				$start_message = $criminal_node->field_criminal_info_3['und'][0]['value'] .' '. variable_get('sonycl_config_location_three_start');
+				$_SESSION['case-info']['content'] .= '<span class="date">'.format_date(time() + 60*60*54, 'sony').'</span><span class="info">'.$criminal_node->field_criminal_info_3['und'][0]['value'].'</span>';
+				$_SESSION['case-info']['marquee'] = $_SESSION['case-info']['header'].'<span class="date">'.format_date(time() + 60*60*34, 'sony').'</span><span class="info">'.$criminal_node->field_criminal_info_3['und'][0]['value'].'</span>';
+				unset($criminal_node);
+				break;
+				break;
+			case 3:
+				$start_message = variable_get('sonycl_config_location_four_start');
+				break;
+			case 4:
+				$start_message = variable_get('sonycl_config_location_five_start');
+				break;		
+		endswitch;
+		
+		$case_info_messages = array(variable_get('sonycl_config_options_caseinfo_message_one'), variable_get('sonycl_config_options_caseinfo_message_two'), variable_get('sonycl_config_options_caseinfo_message_three'));
+		
+		$start = array(
+			'#prefix' => '<div class="cl-start cl-message-container">',
+			'#suffix' => '</div>',
+			'speech' => array(
+				'#prefix' => '<div class="cl-speech-container">',
+				'#suffix' => '</div>',
+				'header' => array(
+					'#prefix' => '<div class="cl-clue-header">',
+					'#suffix' => '</div>',
+					'#markup' => $agent_node->title.'<small>'.$agent_node->field_job_title['und'][0]['value'].'</small>',
+				),
+				'content' => array(
+					'#prefix' => '<div class="cl-clue-content">',
+					'#suffix' => '</div>',
+					'#markup' => $start_message,
+				),
+			),
+			'back' => array(
+				'#prefix' => '<a class="cl-clue-start" rel="'.sonycl_gameplay_get_start_time().'">',
+				'#suffix' => '</a>',
+				'#markup' => '<span>'.variable_get('sonycl_config_location_start_button').'</span>',
+			),
+			'agent' => array(
+				'#prefix' => '<div class="cl-character '.strtolower(str_replace(' ','-',$agent_node->title)).'">',
+				'#suffix' => '</div>',
+				'#markup' => theme('image', array('path' => $agent_node->field_agent_image_large['und'][0]['uri'], 'attributes' => array('class' => 'cl-clues-image-large'))),
+			),
+		);
+		
+		unset($agent_node);
+		/*
+		$location_node = node_load($_SESSION['locations'][$_SESSION['progress']]['nid']);
+		$feed_app_id = 191593130998242;
+		$feed_display = 'popup';
+		$feed_link = $base_url;
+		$feed_picture = file_create_url($location_node->field_location_macro_image['und'][0]['uri']);
+		$feed_name = variable_get('sonycl_config_widgets_clues_social_fbname');
+		$feed_caption = variable_get('sonycl_config_widgets_clues_social_fbcaption');
+		$feed_description = variable_get('sonycl_config_widgets_clues_social_fbdescription');
+		$feed_redirect = $feed_link;
+		*/
+		
+		if( !empty($output) ):
+			$commands = array();
+			$commands[] = ajax_command_html('#location', $output);
+			$commands[] = ajax_command_append('#location #cl-time-progress', render($guess));
+			$commands[] = ajax_command_append('#location #cl-solutions', render($start));
+			$commands[] = ajax_command_invoke('#location', 'sonycl_gameplay_location_load', array(
+				variable_get('sonycl_config_location_load_popup_start'),
+				variable_get('sonycl_config_location_load_popup_complete'),
+				variable_get('sonycl_config_location_load_connect_connecting'),
+				variable_get('sonycl_config_location_load_connect_connection_found'),
+				variable_get('sonycl_config_location_load_connect_connected'),
+				variable_get('sonycl_config_location_load_connect_loading_image'),
+			));
+			$commands[] = ajax_command_invoke('#location #cl-time-progress .location-select', 'sonycl_gameplay_dropkick');
+			$commands[] = ajax_command_invoke('#cl-solutions .cl-clue-content', 'sonycl_gameplay_scroll');
+			//$commands[] = ajax_command_invoke('#location', 'soncycl_gameplay_location_variables', array($feed_app_id, $feed_display, $feed_link, $feed_picture, $feed_name, $feed_caption, $feed_description, $feed_redirect));
+			$commands[] = ajax_command_html('#cl-case-file .marq', '<marquee class="cl-case-file-content" loop="1000" height="40" width="530" scrollamount="2">'.$_SESSION['case-info']['marquee'].'<span class="message">'.$case_info_messages[rand(0,2)].'</span></marquee>');
+			$commands[] = ajax_command_invoke('#cl-case-file .marq marquee', 'sonycl_gameplay_marquee');
+			$page = array('#type' => 'ajax', '#commands' => $commands);
+			
+			ajax_deliver($page);
+		endif;
+	else:
+		$output = t("This is some content delivered via a page load.");
+		return $output;
+	endif;
+}
+
+/**
+ *
+ * Respond with an array of Location node IDs
+ *
+ * @return  markup	array		Location node IDs
+ *
+ */
+function sonycl_gameplay_get_locations(){
+	$start = 0;
+	
+	$locations = array();
+	
+	switch($_SESSION['level']):
+		case 0:
+			$numNovice = 3;
+			$numInter = 1;
+			$numHard = 1;
+			break;
+		case 1:
+			$numNovice = 1;
+			$numInter = 3;
+			$numHard = 1;
+			break;
+		case 2:
+			$numNovice = 1;
+			$numInter = 1;
+			$numHard = 3;
+			break;
+	endswitch;
+	
+	$query = db_select('node','n');
+	$query->join('field_data_field_location_display_name','dn','n.nid = dn.entity_id');
+	$query->join('field_data_field_location_difficulty','d','n.nid = d.entity_id');
+	$query->fields('n', array('nid','title'));
+	$query->fields('dn', array('field_location_display_name_value'));
+	$query->condition('n.type','location','=');
+	$query->orderRandom();
+	
+	$nQuery = clone $query;
+	$iQuery = clone $query;
+	$aQuery = clone $query;
+	
+	$nQuery->condition('d.field_location_difficulty_tid','1','=');
+	$nQuery->range($start,$numNovice);
+	$result = $nQuery->execute();
+	foreach($result as $record):
+		$locations[] = array(
+			'nid' => $record->nid,
+			'title' => $record->title,
+			'display' => $record->field_location_display_name_value,
+			'points' => 0,
+			'guesses' => 3,
+			'success' => 'future',
+			'difficulty' => 'easy',
+		);
+	endforeach;
+	// Unset Query
+	unset($nQuery); unset($result);
+	
+	$iQuery->condition('d.field_location_difficulty_tid','2','=');
+	$iQuery->range($start,$numInter);
+	$result = $iQuery->execute();
+	foreach($result as $record):
+		$locations[] = array(
+			'nid' => $record->nid,
+			'title' => $record->title,
+			'display' => $record->field_location_display_name_value,
+			'points' => 0,
+			'guesses' => 3,
+			'success' => 'future',
+			'difficulty' => 'medium',
+		);
+	endforeach;
+	// Unset Query
+	unset($iQuery); unset($result);
+	
+	$aQuery->condition('d.field_location_difficulty_tid','3','=');
+	$aQuery->range($start,$numHard);
+	$result = $aQuery->execute();
+	foreach($result as $record):
+		$locations[] = array(
+			'nid' => $record->nid,
+			'title' => $record->title,
+			'display' => $record->field_location_display_name_value,
+			'points' => 0,
+			'guesses' => 3,
+			'success' => 'future',
+			'difficulty' => 'hard',
+		);
+	endforeach;
+	// Unset Query
+	unset($aQuery); unset($result);
+	// Unset Initial Query
+	unset($query); 
+	// Return Locations
+	return $locations;
+	
+}
+
+/**
+ *
+ * Respond with a render array link for the next location
+ *
+ * @param	string	$label		Button label
+ * @return  markup	$output		Link render array || NULL
+ *
+ */
+function sonycl_gameplay_render_next_location_link($label) {
+		$rand = user_password($length = 4);
+		//$nid = $_SESSION['locations'][$_SESSION['progress']+1]['nid'];
+		$build['ajax-link-location-'.$rand] = array(
+			'#type' => 'link',
+			'#title' => '<span>'.$label.'</span>',
+			'#href' => 'case/location/nojs/',
+			'#id' => 'ajax-link-location-'.$rand,
+			'#options' => array('html' => true, 'attributes' => array('class' => 'cl-next-location')),
+			'#ajax' => array(
+				'wrapper' => 'location',
+				'effect' => 'fade',
+				'progress' => array( 'type' => 'throbber', 'message' => '', 'wrapper' => '.cl-container' )
+			)
+		);
+		return $build;
+	//endif;
+	
+}
+
+/**
+ *
+ * Respond with a solve button for the current location
+ *
+ * @param	number	$nid		Location Node ID
+ * @return	markup	$output		Link render array
+ *
+ */
+function sonycl_gameplay_render_solve_location_link(){
+	$rand = user_password($length = 4);
+	$build['ajax-link-solve-'.$rand] = array(
+		'#type' => 'link',
+		'#title' => '<span class="cl-clues-text">'.variable_get('sonycl_config_location_solve_button').'</span>',
+		'#href' => 'case/location/solve-location/104/nojs/',
+		'#id' => 'ajax-link-solve-'.$rand,
+		'#options' => array('html' => true, 'attributes' => array('class' => 'cl-solve-button')),
+		'#ajax' => array(
+			'wrapper' => 'location',
+			'effect' => 'fade',
+			'progress' => array( 'type' => 'throbber', 'message' => '', 'wrapper' => '.cl-container' )
+		)
+	);
+	return $build;
+}
+
+
+
+function sonycl_gameplay_render_progress(){
+
+	$list_items = array();
+	for($i = 0; $i < 5; $i++){
+		$location = $_SESSION['locations'][$i];
+		$class = ($_SESSION['progress'] == $i) ? (($location['success'] == 'pass') ? 'pass' : (($location['success'] == 'fail') ? 'fail' : 'current')) : $location['success'];
+		
+		$node = node_load($location['nid']);
+		if($node->nid):
+			$img = theme('image_style', array('path' => $node->field_location_image['und'][0]['uri'], 'style_name' => 'location-small_40x40'));
+		endif;
+		unset($node);
+		
+		$p = $i + 1;
+		$list_items[] = array(
+			'data' => $img.'<span><span class="number">'.$p.'</span></span>',
+			'class' => array($class),
+		);
+	}
+
+	$output = array(
+		'#prefix' => '<div class="cl-progress">',
+		'#suffix' => '</div>',
+		'title' => array(
+			'#prefix' => '<span class="cl-time-progress-title">',
+			'#suffix' => '</span>',
+			'#markup' => variable_get('sonycl_config_widgets_map_progress_headline'),
+		),
+		'content' => array(
+			'#theme' => 'item_list',
+			'#items' => $list_items,
+			'#attributes' => array('class' => 'cl-progress-list'),
+		),
+	);
+	
+	return $output;
+}
+
+
+function sonycl_gameplay_render_time_remaining(){
+	$output = array(
+		'#prefix' => '<div class="cl-time-remaining">',
+		'#suffix' => '</div>',
+		'title' => array(
+			'#prefix' => '<span class="cl-time-progress-title">',
+			'#suffix' => '</span>',
+			'#markup' => variable_get('sonycl_config_widgets_time_remaining_headline'),
+		),
+		'content' => array(
+			'#prefix' => '<div id="countdown_dashboard">',
+			'#suffix' => '</div>',
+			'minutes' => array(
+				'#prefix' => '<div class="dash minutes_dash">',
+				'#suffix' => '</div>',
+				'#markup' => '<div class="digit">0</div><div class="digit">0</div>',
+			),
+			'seconds' => array(
+				'#prefix' => '<div class="dash seconds_dash">',
+				'#suffix' => '</div>',
+				'#markup' => '<div class="digit">0</div><div class="digit">0</div>',
+			),
+		),
+		'solve' => sonycl_gameplay_render_solve_location_link(),
+	);
+	
+	return $output;
+}
+
+
+
+
+/**
+ *
+ * Ajax response with a rendered social
+ *
+ * @param	number	$nid		The Node ID of the clue to load
+ * @param	string	$type		If JavaScript is enabled used AJAX
+ * @return  markup	$output		The rendered clue node || No JavaScript markup
+ *
+ */
+function sonycl_gameplay_solve_location_response($nid, $type = 'ajax'){
+	if( $type == 'ajax' ):
+		
+		$agent_node = node_load(132); // Dorn
+		
+		$location_node = node_load($nid);
+		
+		$output = array(
+			'#prefix' => '<div class="cl-solve cl-message-container">',
+			'#suffix' => '</div>',
+			'speech' => array(
+				'#prefix' => '<div class="cl-speech-container">',
+				'#suffix' => '</div>',
+				'header' => array(
+					'#prefix' => '<div class="cl-clue-header">',
+					'#suffix' => '</div>',
+					'#markup' => $agent_node->title.'<small>'.$agent_node->field_job_title['und'][0]['value'].'</small>',
+				),
+				'content' => array(
+					'#prefix' => '<div class="cl-clue-content">',
+					'#suffix' => '</div>',
+					'#markup' => variable_get('sonycl_config_location_guess_message'),
+				),
+			),
+			'back' => array(
+				'#prefix' => '<a class="cl-clue-back">',
+				'#suffix' => '</a>',
+				'#markup' => '<span>'.variable_get('sonycl_config_location_back_button').'</span>',
+			),
+			'agent' => array(
+				'#prefix' => '<div class="cl-character '.strtolower(str_replace(' ','-',$agent_node->title)).'">',
+				'#suffix' => '</div>',
+				'#markup' => theme('image', array('path' => $agent_node->field_agent_image_large['und'][0]['uri'], 'attributes' => array('class' => 'cl-clues-image-large'))),
+			),
+			
+		);
+		
+		unset($agent_node);
+		
+		
+		
+		if( !empty($output) ):
+			$commands = array();
+			$commands[] = ajax_command_invoke('#cl-time-progress', 'sonycl_gameplay_display_solve');
+			$commands[] = ajax_command_invoke('.cl-clues-container', 'sonycl_gameplay_reset_clues_menu');
+			$commands[] = ajax_command_invoke('#cl-clues', 'html', array(''));
+			$commands[] = ajax_command_html('#cl-solutions', render($output));
+			$page = array('#type' => 'ajax', '#commands' => $commands);
+			ajax_deliver($page);
+		endif;
+
+	else:
+		$output = t("This is some content delivered via a page load.");
+		return $output;
+	endif;
+}
+
+function shuffle_assoc(&$array) {
+        $keys = array_keys($array);
+
+        shuffle($keys);
+
+        foreach($keys as $key) {
+            $new[$key] = $array[$key];
+        }
+
+        $array = $new;
+
+        return true;
+    }
+
+/**
+ *
+ * Solve Location Form
+ *
+ * @param	number	$nid		The Node ID of the location
+ * @return  markup	$form		Form
+ *
+ */
+function sonycl_gameplay_solve_location_form($nid){
+	// Create fake answers
+	//$options = sonycl_gameplay_return_locations($_SESSION['solve-options']); // Depricated 7001
+	$dummy_locations = explode(',', str_replace(', ',',',variable_get('sonycl_config_additional_locations')));
+	shuffle($dummy_locations);
+	for($i = 0; $i < $_SESSION['solve-options']; $i++){
+		$options[rand(100,999)] = trim($dummy_locations[$i]);
+	}
+	
+	// Get correct answer
+	$query = db_select('node','n');
+	$query->join('field_data_field_location_display_name','dn','n.nid = dn.entity_id');
+	$query->fields('n', array('nid'));
+	$query->fields('dn', array('field_location_display_name_value'));
+	$query->condition('type','location','=');
+	$query->condition('n.nid',$_SESSION['locations'][$_SESSION['progress']]['nid'],'=');
+	$query->range(0,1);
+	$result = $query->execute();
+	foreach($result as $record):
+		$options[$record->nid] = trim(preg_replace('/<strong[^>]*>([\s\S]*?)<\/strong[^>]*>/', '', $record->field_location_display_name_value));
+	endforeach;
+	unset($query); unset($result);
+	
+	// Shuffle answers
+	shuffle_assoc($options);
+
+	$form['#attributes'] = array(
+		'class' => 'cl-select-clue',
+	);
+	
+	$form['locations'] = array(
+		'#type' => 'select',
+		'#title' => variable_get('sonycl_config_location_guess_headline'),
+		'#name' => 'name',
+		'#options' => $options,
+		'#attributes' => array('class' => array('location-select')),
+		'#ajax' => array(
+			'callback' => 'sonycl_gameplay_solve_location_callback',
+			'wrapper' => 'cl-solutions',
+			'effect' => 'fade',
+			'progress' => array( 'type' => 'throbber', 'message' => '', 'wrapper' => '.cl-container' ),
+		),
+	);
+	
+	$form['time-left'] = array(
+		'#type' => 'hidden',
+		'#default_value' => 'lots',
+	);
+	
+
+	return $form;
+}
+
+function sonycl_gameplay_location_solve_form_validate($form, &$form_state) {
+  // Validation logic.
+}
+
+/**
+ *
+ * The game engine.
+ *
+ * @param	form		$form			The locatino solve form render array
+ * @param   form_state	$form_stage		The state of the form on select change // Hidden time-left field calculated through included JS file sonycl_gameplay.js
+ * @return  markup		$output			Dynamic render array
+ *
+ */
+function sonycl_gameplay_solve_location_callback($form, &$form_state) {
+	
+	$_SESSION['myarray'] = $form_state;
+	
+	
+	$guessID = intval($form_state['input']['name']);
+	$timeleft = $form_state['input']['time-left'];
+	
+	$success = ($_SESSION['locations'][$_SESSION['progress']]['nid'] == $guessID) ? (($timeleft != 'zero') ? true : false) : false;
+	
+	if($success):
+		$_SESSION['locations'][$_SESSION['progress']]['success'] = 'pass';
+		//if($_SESSION['progress'] == 4):
+		//	$output = sonycl_gameplay_solve_mission_success($timeleft);
+		//else:
+			$output = sonycl_gameplay_solve_location_success($timeleft);
+		//endif;
+	else:
+		// Take away a guess
+		$_SESSION['locations'][$_SESSION['progress']]['guesses'] -= 1;
+		
+		// Do we have guesses left?
+		if( $_SESSION['locations'][$_SESSION['progress']]['guesses'] > 0 && $timeleft != 'zero' ):
+			// Yes, we have guesses left
+			$failtype = 'guess';
+			$output = sonycl_gameplay_solve_location_failure($failtype, $timeleft);
+		else:
+			// No, we do not have any guesses left
+			// Take away a life
+			$_SESSION['lives'] -= 1;
+			// Do we have any lives left?
+			if( $_SESSION['lives'] > 0 && $_SESSION['progress'] != 4):
+				// Yes, we have lives left
+				$failtype = ($timeleft != 'zero') ? 'level' : 'time';
+				$_SESSION['locations'][$_SESSION['progress']]['success'] = 'fail';
+				$_SESSION['locations'][$_SESSION['progress']]['points'] = 0;
+				$output = sonycl_gameplay_solve_location_failure($failtype, $timeleft);
+			else:
+				// No, we do not have any lives left
+				$failtype = 'mission';
+				$output = sonycl_gameplay_solve_location_failure($failtype, $timeleft);
+			endif;
+		endif;
+	endif;
+	
+	$_SESSION['theoutput'] = $output;
+
+	
+	if( !empty($output) ):
+		$commands = array();
+		$commands[] = ajax_command_invoke('#cl-clues', 'html', array(''));
+		$commands[] = ajax_command_html('#cl-solutions', render($output));
+		$commands[] = ajax_command_invoke('.cl-clues-container', 'sonycl_gameplay_reset_clues_menu');
+		$commands[] = ajax_command_invoke('#cl-solutions .cl-clue-content', 'sonycl_gameplay_scroll');
+		if($success):
+			$commands[] = ajax_command_invoke('#countdown_dashboard', 'stopCountDown');
+			$commands[] = ajax_command_invoke('#location .cl-clue-image-revealed', 'fadeIn');
+			$commands[] = ajax_command_invoke('#audio #gameplay', 'sonycl_gameplay_fade_out_sound');
+		endif;
+		$commands[] = ajax_command_invoke('#cl-time-progress', 'sonycl_gameplay_hide_extras');
+		if(isset($failtype)): 
+				switch($failtype):
+				case 'guess':
+					$commands[] = ajax_command_invoke('#countdown_dashboard', 'sonycl_gameplay_reduce_time', array( intval($_SESSION['time-limit']) * 0.1 ));
+					break;
+				case 'time':
+				case 'level':
+					$commands[] = ajax_command_invoke('#countdown_dashboard', 'stopCountDown');
+					$commands[] = ajax_command_invoke('#audio #gameplay', 'sonycl_gameplay_fade_out_sound');
+					break;
+			endswitch;
+		endif;
+		return array('#type' => 'ajax', '#commands' => $commands);
+	endif;
+}
+
+/**
+ *
+ * Ajax response with a rendered sucessfull guess
+ *
+ * @param	number	$timeleft	The time left on the clock
+ * @return  markup	$output		The renderable sucess array
+ *
+ */
+function sonycl_gameplay_solve_location_success($timeleft){
+	$agent_node = node_load(225); // Louis
+	
+	switch($_SESSION['progress']):
+		case 0:
+			$complete_message = variable_get('sonycl_config_location_one_complete');
+			$link = sonycl_gameplay_render_next_location_link(variable_get('sonycl_config_location_next_button'));
+			break;
+		case 1:
+			$complete_message = variable_get('sonycl_config_location_two_complete');
+			$link = sonycl_gameplay_render_next_location_link(variable_get('sonycl_config_location_next_button'));
+			break;
+		case 2:
+			$complete_message = variable_get('sonycl_config_location_three_complete');
+			$link = sonycl_gameplay_render_next_location_link(variable_get('sonycl_config_location_next_button'));
+			break;
+		case 3:
+			$complete_message = variable_get('sonycl_config_location_four_complete');
+			$link = sonycl_gameplay_render_next_location_link(variable_get('sonycl_config_location_next_button'));
+			break;
+		case 4:
+			$complete_message = variable_get('sonycl_config_location_five_complete');
+			$link = sonycl_gameplay_render_debrief_link(variable_get('sonycl_config_mission_success_view_button'));
+			break;	
+	endswitch;
+
+	$cl_content_header = ( strlen($_SESSION['locations'][$_SESSION['progress']]['display']) > 25 ) ? '<span style="font-size:80%;">'.$_SESSION['locations'][$_SESSION['progress']]['display'].'</span>' : $_SESSION['locations'][$_SESSION['progress']]['display'];
+	
+	$output = array(
+		'#prefix' => '<div class="cl-solve-pass cl-message-container">',
+		'#suffix' => '</div>',
+		'speech' => array(
+			'#prefix' => '<div class="cl-speech-container">',
+			'#suffix' => '</div>',
+			'header' => array(
+				'#prefix' => '<div class="cl-clue-header">',
+				'#suffix' => '</div>',
+				'#markup' => $agent_node->title.'<small>'.$agent_node->field_job_title['und'][0]['value'].'</small>',
+			),
+			'content' => array(
+				'#prefix' => '<div class="cl-clue-content">',
+				'#suffix' => '</div>',
+				'#markup' => $complete_message,
+			),
+		),
+		'link' => $link,
+		'agent' => array(
+				'#prefix' => '<div class="cl-character '.strtolower(str_replace(' ','-',$agent_node->title)).'">',
+			'#suffix' => '</div>',
+			'#markup' => theme('image', array('path' => $agent_node->field_agent_image_large['und'][0]['uri'], 'attributes' => array('class' => 'cl-clues-image-large'))),
+		),
+		'content' => array(
+			'#prefix' => '<div class="cl-content-box">',
+			'#suffix' => '</div>',
+			'header' => array(
+				'#prefix' => '<div class="cl-content-box-header">',
+				'#suffix' => '</div>',
+				'#markup' => $cl_content_header,
+			),
+			'content' => array(
+				'#prefix' => '<div class="cl-content-box-content">',
+				'#suffix' => '</div>',
+				'scorecard' => sonycl_gameplay_solve_location_scorecard($timeleft),
+			),
+		),
+		
+	);	
+	return $output;
+}
+
+/**
+ *
+ * Respond with a render array link for the next location
+ *
+ * @param	string	$label		Button label
+ * @return  markup	$output		Link render array || NULL
+ *
+ */
+function sonycl_gameplay_render_debrief_link($label) {
+	//if($_SESSION['progress'] != 4):
+		$rand = user_password($length = 4);
+		//$nid = $_SESSION['locations'][$_SESSION['progress']+1]['nid'];
+		$build['ajax-link-location-'.$rand] = array(
+			'#type' => 'link',
+			'#title' => '<span>'.$label.'</span>',
+			'#href' => 'case/location/debrief/nojs',
+			'#id' => 'ajax-link-location-'.$rand,
+			'#options' => array('html' => true, 'attributes' => array('class' => 'cl-next-location')),
+			'#ajax' => array(
+				'wrapper' => 'location',
+				'effect' => 'fade',
+				'progress' => array( 'type' => 'throbber', 'message' => '', 'wrapper' => '.cl-container' )
+			)
+		);
+		return $build;
+	//endif;
+	
+}
+
+/**
+ *
+ * Ajax response with a rendered sucessfull guess
+ *
+ * @param	number	$timeleft	The time left on the clock
+ * @return  markup	$output		The renderable sucess array
+ *
+ */
+function sonycl_gameplay_solve_mission_response($type = 'ajax'){
+	if( $type == 'ajax' ):
+		
+		global $base_url;
+		
+		$agent_node = node_load(132); // Dorn
+		$criminal_node = node_load($_SESSION['criminal']);
+		
+		// Points
+		$_SESSION['total-points'] = 0;
+		for($i = 0; $i < $_SESSION['progress']+1; $i++){
+			$_SESSION['total-points'] += $_SESSION['locations'][$i]['points'];
+		}
+		
+		$output = array(
+			'#prefix' => '<div class="cl-solve-win cl-message-container">',
+			'#suffix' => '</div>',
+			'speech' => array(
+				'#prefix' => '<div class="cl-speech-container">',
+				'#suffix' => '</div>',
+				'header' => array(
+					'#prefix' => '<div class="cl-clue-header">',
+					'#suffix' => '</div>',
+					'#markup' => $agent_node->title.'<small>'.$agent_node->field_job_title['und'][0]['value'].'</small>',
+				),
+				'content' => array(
+					'#prefix' => '<div class="cl-clue-content">',
+					'#suffix' => '</div>',
+					'#markup' => $criminal_node->field_criminal_debriefing['und'][0]['value'],
+				),
+			),
+			'link' => array(
+				'#prefix' => '<a class="cl-clue-home" href="'.$base_url.'">',
+				'#suffix' => '</a>',
+				'#markup' => '<span>'.variable_get('sonycl_config_mission_failure_play_again_button').'</span>',
+			),
+			'agent' => array(
+				'#prefix' => '<div class="cl-character '.strtolower(str_replace(' ','-',$agent_node->title)).'">',
+				'#suffix' => '</div>',
+				'#markup' => theme('image', array('path' => $agent_node->field_agent_image_large['und'][0]['uri'], 'attributes' => array('class' => 'cl-clues-image-large'))),
+			),
+			
+			'content' => array(
+				'#prefix' => '<div class="cl-content-box">',
+				'#suffix' => '</div>',
+				'header' => array(
+					'#prefix' => '<div class="cl-content-box-header">',
+					'#suffix' => '</div>',
+					//'#markup' => '',
+				),
+				'content' => array(
+					'#prefix' => '<div class="cl-content-box-content">',
+					'#suffix' => '</div>',
+					'progress' => sonycl_gameplay_render_progress(),
+					'points' => array(
+						'#prefix' => '<hr /><div class="cl-scorecard-content">',
+						'#suffix' => '</div>',
+						'table' => array(
+							'#suffix' => '<hr />',
+							'#theme' => 'table',
+							//'#header' => array('Time Score','Clue score','Total'),
+							'#rows' => array(
+								'points' => array( 
+									array(
+										'data' => variable_get('sonycl_config_location_scorecard_score'),
+										'class' => 'cl-column-left',
+									),
+									array(
+										'data' => $_SESSION['total-points'].' '.variable_get('sonycl_config_location_scorecard_points'),
+										'class' => 'cl-column-right',
+									),
+								),
+							),
+						),
+					),
+					'save' => array(
+						'#prefix' => '<div id="save-score">',
+						'#suffix' => '</div>',
+						'form' => drupal_get_form('sonycl_gameplay_save_score_form'),
+					),
+					'facebook' => array(
+						'#prefix' => '<div id="share-score"><label>'.variable_get('sonycl_config_mission_debrief_facebook').'</label>',
+						'#suffix' => '</div>',
+						'#markup' => '<a onclick="'.sonycl_gameplay_generate_score_facebook_feed_dialog().'" class="cl-clue-share-score"><span>'.variable_get('sonycl_config_mission_debrief_facebook_cta').'</span></a>',
+					),
+				),
+			),
+		);
+		
+		
+		unset($agent_node);
+		unset($criminal_node);
+
+		$badWords = variable_get('sonycl_config_profanity');
+		$badWords = str_replace(', ',',',$badWords);
+		$badWords = str_replace(',','|',$badWords);
+		
+		if( !empty($output) ):
+			$commands = array();
+			$commands[] = ajax_command_invoke('#cl-clues', 'html', array(''));
+			$commands[] = ajax_command_html('#cl-solutions', render($output));
+			$commands[] = ajax_command_invoke('.cl-clues-container', 'sonycl_gameplay_reset_clues_menu');
+			$commands[] = ajax_command_invoke('#cl-solutions .cl-clue-content', 'sonycl_gameplay_scroll');
+			$commands[] = ajax_command_invoke('#countdown_dashboard', 'stopCountDown');
+			$commands[] = ajax_command_invoke('#cl-time-progress', 'sonycl_gameplay_hide_extras');
+			$commands[] = ajax_command_invoke('#cl-solutions', 'sonycl_gameplay_mission_success', array($badWords));
+			$page = array('#type' => 'ajax', '#commands' => $commands);
+			ajax_deliver($page);
+		endif;
+	else:
+		$output = t("This is some content delivered via a page load.");
+		return $output;
+	endif;
+}
+
+/**
+ *
+ * Solve Location Form
+ *
+ * @param	number	$nid		The Node ID of the location
+ * @return  markup	$form		Form
+ *
+ */
+function sonycl_gameplay_save_score_form(){
+	
+	$form['#attributes'] = array(
+		'class' => 'cl-save-score',
+	);
+	
+	$form['name'] = array(
+		'#type' => 'textfield',
+		'#title' => variable_get('sonycl_config_mission_debrief_name'),
+		'#name' => 'name',
+		'#maxlength' => 10,
+	);
+	
+	$form['submit'] = array(
+		'#type' => 'submit',
+		'#value' => 'Save',
+		'#ajax' => array(
+			'callback' => 'sonycl_gameplay_save_score_callback',
+			'wrapper' => 'cl-solutions',
+			'effect' => 'fade',
+			'progress' => array( 'type' => 'throbber', 'message' => '', 'wrapper' => '.cl-container' ),
+			'event' => 'dblclick',
+
+		),
+	);
+	
+	return $form;
+}
+
+function sonycl_gameplay_filter_words($text){
+	$wordstring = str_replace(', ',',', variable_get('sonycl_config_profanity'));
+	$filterWords = explode(',',$wordstring);
+	$filterCount = sizeof($filterWords);
+	for($i=0; $i<$filterCount; $i++){
+		$text = preg_replace('/'.$filterWords[$i].'/ie',"str_repeat('',strlen('$0'))",$text);
+	}
+	return $text;
+}
+
+function sonycl_gameplay_save_score_callback($form, &$form_state){
+	
+	//$name = sonycl_gameplay_filter_words($form_state['input']['name']);
+	$name = $form_state['input']['name'];
+	
+	
+	$output = array(
+		'#prefix' => '<hr /><div class="leaderboard-button-holder">',
+		'#suffix' => '</div><hr />',
+		'#markup' => '<a class="cl-clue-view-leaderboard"><span>'.variable_get('sonycl_config_mission_debrief_view_leaderboard').'</span></a>',
+	);
+	
+	$query = db_insert('sonycl_gameplay_top_scores');
+	$query->fields(array(
+		 'name' => $name,
+		 'score' => $_SESSION['total-points'],
+		 'level' => $_SESSION['level'],
+		 'timestamp' => REQUEST_TIME,
+	));
+	$result = $query->execute();
+	
+	
+	
+	if( !empty($output) ):
+		$commands = array();
+		$commands[] = ajax_command_html('#cl-solutions #save-score', render($output));
+		$commands[] = ajax_command_invoke('#cl-solutions #save-score .cl-clue-view-leaderboard', 'sonycl_gameplay_score_submitted');
+		return array('#type' => 'ajax', '#commands' => $commands);
+	endif;
+}
+
+/**
+ *
+ * JS response with share score onclick
+ *
+ * @param	number	$nid		The Node ID of the clue to load
+ * @param	string	$type		If JavaScript is enabled used AJAX
+ * @return  markup	$output		The rendered clue node || No JavaScript markup
+ *
+ */
+function sonycl_gameplay_generate_score_facebook_feed_dialog(){
+	$node = node_load($_SESSION['locations'][$_SESSION['progress']]['nid']);
+	if($node->nid):
+		
+			$feed_app_id = 191593130998242;
+			$feed_display = 'popup';
+			$feed_link = variable_get('sonycl_config_url');
+			$feed_picture = file_create_url($node->field_location_macro_image['und'][0]['uri']);
+			$feed_name = variable_get('sonycl_config_mission_debrief_fbname');
+			$feed_name = str_replace('"','“',$feed_name);
+			$feed_caption = t(variable_get('sonycl_config_mission_debrief_fbcaption'), array('@points' => $_SESSION['total-points'])); 
+			$feed_caption = str_replace('"','“',$feed_caption);
+			$feed_description = t(variable_get('sonycl_config_mission_debrief_fbdescription'), array('@points' => $_SESSION['total-points']));
+			$feed_description = str_replace('"','“',$feed_description);
+			$feed_redirect = $feed_link;
+		/*
+		$feed_options = array();
+		$feed_options[] = 191593130998242;
+		$feed_options[] = 'popup';
+		$feed_options[] = url('/', array('absolute' => TRUE));
+		$feed_options[] = file_create_url($node->field_location_macro_image['und'][0]['uri']);
+		$feed_options[] = variable_get('sonycl_config_widgets_clues_social_fbname');
+		$feed_options[] = variable_get('sonycl_config_widgets_clues_social_fbcaption');
+		$feed_options[] = variable_get('sonycl_config_widgets_clues_social_fbdescription');
+		*/
+		unset($node);
+		
+		//return $feed_options;
+		
+		$js = "postToFeed('$feed_link','$feed_picture','$feed_name','$feed_caption','$feed_description');";
+		//return '<a onclick="'.$js.'" >'.variable_get('sonycl_config_widgets_clues_social_cta').'</a>';
+		return $js;
+	
+	endif;
+}
+
+
+
+/**
+ *
+ * Generate a scorecard for the complete location
+ *
+ * @param	number	$timeleft	The time left on the clock
+ * @return  markup	$output		The renderable sucess array
+ *
+ */
+function sonycl_gameplay_solve_location_scorecard($timeleft){
+	$level_multiplier = $_SESSION['point-multiplier'];
+	$time_percentage = ($timeleft / $_SESSION['time-limit']) * 100;
+	$penalty = 1;
+	if( $time_percentage < 10 ):
+		$penalty = .70;			// 10% left, 30% deduction
+	elseif( $time_percentage < 20 ):
+		$penalty = .80;			// 20% left, 20% deduction
+	elseif( $time_percentage < 30 ):
+		$penalty = .90;			// 30% left, 10% deduction
+	elseif( $time_percentage > 90 ):
+		$penalty = 1.10;		// 90% left, 10% increase
+	endif;
+	
+	switch($_SESSION['locations'][$_SESSION['progress']]['difficulty']):
+		case 'easy':
+			$level_multiplier = $level_multiplier;
+			break;
+		case 'medium':
+			$level_multiplier = $level_multiplier * 1.2;
+			break;
+		case 'hard':
+			$level_multiplier = $level_multiplier * 1.5;
+			break;
+	endswitch;
+	
+	
+	
+	
+	$_SESSION['locations'][$_SESSION['progress']]['points'] = floor($time_percentage * ($level_multiplier * $penalty));
+	
+	
+	$bonusclass = ($penalty > 1) ? 'bonus' : (($time_percentage >= 30) ? '' : 'penalty');
+	
+	
+	$_SESSION['total-points'] = 0;
+	
+	
+		
+	// Progress Rows
+	$progress_rows = array();
+	for($i = 0; $i < $_SESSION['progress']+1; $i++){
+		$display_name = $_SESSION['locations'][$i]['display'];
+		if(strlen($display_name) > 24): 
+			//$display_name = strip_tags($display_name);
+			$display_name = trim(preg_replace('/<strong[^>]*>([\s\S]*?)<\/strong[^>]*>/', '', $display_name));
+			$display_name = mb_substr($display_name,0,25).'&hellip;';
+		endif;
+		$progress_rows[] = array(
+			array(
+				'data' => $display_name,
+				'class' => 'cl-column-left',
+			),
+			array(
+				'data' => $_SESSION['locations'][$i]['points'].' '.variable_get('sonycl_config_location_scorecard_points'),
+				'class' => 'cl-column-right',
+			),
+		);
+		
+		$_SESSION['total-points'] +=  $_SESSION['locations'][$i]['points'];
+	}
+	
+	$total_rows[] = array(
+		array(
+			'data' => variable_get('sonycl_config_location_scorecard_total'),
+			'class' => 'cl-column-left',
+		),
+		array(
+			'data' => $_SESSION['total-points'].' '.variable_get('sonycl_config_location_scorecard_points'),
+			'class' => 'cl-column-right',
+		),
+	);
+	
+	$output = array(
+		'#prefix' => '<div class="cl-scorecard">',
+		'#suffix' => '</div>',
+		/*'title' => array(
+			'#prefix' => '<div class="cl-scorecard-title">',
+			'#suffix' => '</div>',
+			'#markup' => 'title',
+		),*/
+		'content' => array(
+			'#prefix' => '<div class="cl-scorecard-content">',
+			'#suffix' => '</div>',
+			'table' => array(
+				'#suffix' => '<hr />',
+				'#theme' => 'table',
+				//'#header' => array('Time Score','Clue score','Total'),
+				'#rows' => array(
+					'time' => array(
+						array(
+							'data' => variable_get('sonycl_config_location_scorecard_time_remaining'),
+							'class' => 'cl-column-left',
+						),
+						array(
+							'data' => gmdate("i:s", $timeleft),
+							'class' => 'cl-column-right',
+						),
+					),
+					'multiplier' => array(
+						array(
+							'data' => variable_get('sonycl_config_location_scorecard_multiplier'),
+							'class' => 'cl-column-left',
+						),
+						array(
+							'data' => 'x'.$level_multiplier * $penalty,
+							'class' => 'cl-column-right '.$bonusclass,
+						),
+					),
+					'points' => array( 
+						array(
+							'data' => variable_get('sonycl_config_location_scorecard_score'),
+							'class' => 'cl-column-left',
+						),
+						array(
+							'data' => $_SESSION['locations'][$_SESSION['progress']]['points'].' '.variable_get('sonycl_config_location_scorecard_points'),
+							'class' => 'cl-column-right',
+						),
+					),
+					
+				),
+			),
+			'progress' => sonycl_gameplay_render_progress(),
+			'scores' => array(
+				'#prefix' => '<hr />',
+				'#theme' => 'table',
+				'#rows' => $progress_rows,
+			),
+			'totals' => array(
+				'#prefix' => '<hr />',
+				'#theme' => 'table',
+				'#rows' => $total_rows,
+			),
+			
+			
+		),
+		
+	);
+	
+	return $output;
+}
+
+function sonycl_gameplay_solve_location_failure($type, $timeleft){
+
+	global $base_url;
+
+	switch($type):
+		case 'level':
+		case 'time':
+			$agent_node = node_load(115); // Seb
+			break;
+		case 'guess':
+			$agent_node = node_load(114); // Hickman
+			break;
+		case 'mission':
+			$agent_node = node_load(132); // Dorn
+			break;
+		default:
+			$agent_node = node_load(132); // Dorn
+	endswitch;
+	
+	switch($type):
+		case 'guess':
+			$link = array(
+				'#markup' => '<a class="cl-clue-back"><span>'.variable_get('sonycl_config_location_guess_try_again').'</span></a>',
+			);
+			switch($_SESSION['locations'][$_SESSION['progress']]['guesses']):
+				case 1:
+					$message = variable_get('sonycl_config_location_guess_fail_two');
+					break;
+				case 2:
+					$message = variable_get('sonycl_config_location_guess_fail_one');
+					break;
+				
+			endswitch;
+			break;
+		case 'time':
+			$link = sonycl_gameplay_render_next_location_link(variable_get('sonycl_config_location_next_button'));
+			$message = variable_get('sonycl_config_location_fail_time');
+			break;
+		case 'level':
+			$link = sonycl_gameplay_render_next_location_link(variable_get('sonycl_config_location_next_button'));
+			$message = variable_get('sonycl_config_location_fail');
+			break;
+		case 'mission':
+			$link = array(
+				'#markup' => '<a class="cl-clue-home" href="'.$base_url.'"><span>'.variable_get('sonycl_config_mission_failure_play_again_button').'</span></a>',
+			);
+			$message = variable_get('sonycl_config_mission_failure');
+			break;
+		default:
+	endswitch;
+	
+	$output = array(
+		'#prefix' => '<div class="cl-solve-fail cl-message-container">',
+		'#suffix' => '</div>',
+		'fail' => array(
+			'#prefix' => '<div class="cl-solve-fail-bg">',
+			'#suffix' => '</div>',
+			'#markup' => variable_get('sonycl_config_mission_failure_background'),
+		),
+		'speech' => array(
+			'#prefix' => '<div class="cl-speech-container">',
+			'#suffix' => '</div>',
+			'header' => array(
+				'#prefix' => '<div class="cl-clue-header">',
+				'#suffix' => '</div>',
+				'#markup' => $agent_node->title.'<small>'.$agent_node->field_job_title['und'][0]['value'].'</small>',
+			),
+			'content' => array(
+				'#prefix' => '<div class="cl-clue-content">',
+				'#suffix' => '</div>',
+				'#markup' => $message,
+			),
+		),
+		'link' => $link,
+		'agent' => array(
+				'#prefix' => '<div class="cl-character '.strtolower(str_replace(' ','-',$agent_node->title)).'">',
+			'#suffix' => '</div>',
+			'#markup' => theme('image', array('path' => $agent_node->field_agent_image_large['und'][0]['uri'], 'attributes' => array('class' => 'cl-clues-image-large'))),
+		),
+	
+	);
+	
+	unset($agent_node);
+	return $output;
+}
+
+/********************************************************
+// Section: Clues
+/*******************************************************/
+
+
+/**
+ *
+ * Respond with a render array for the clues per location
+ *
+ * @param	number	$agentID	Agent Node ID to load Image
+ * @return  markup	$output		Link render array || NULL
+ *
+ */
+function sonycl_gameplay_clues($locationNID){
+	/*
+	 * To do:
+	 *
+	 * 1. Render wrapper
+	 * 2. Render agent intel
+	 *    a. Tiny Images
+	 *    b. Large Images
+	 * 3. Render social intel
+	 * 4. Render geo intel
+	 *
+	 */
+	$location_node = node_load($locationNID);
+	if($location_node->nid): 
+	
+		$output = array(
+			'#prefix' => '<div class="cl-clues-container">',
+			'#suffix' => '</div>',
+			'compact' => array(
+				'#prefix' => '<div class="cl-clues">',
+				'#suffix' => '</div>',
+				'static' => array(
+					'#prefix' => '<span class="cl-clues-title">',
+					'#suffix' => '<span class="arrow-right"></span></span>',
+					'#markup' => variable_get('sonycl_config_widgets_clues_headline'),
+				),
+				'agent' => sonycl_gameplay_render_clue_link($location_node->field_clue_reference['und'][0]['target_id'], 'agent'),
+				'social' => sonycl_gameplay_render_clue_link($location_node->nid, 'social'),
+				'geo' => sonycl_gameplay_render_clue_link(104, 'geo'),
+			),
+		);
+		
+		unset($location_node);
+		return $output;
+	
+	endif;
+}
+
+/**
+ *
+ * Ajax response with a rendered clue node
+ *
+ * @param	number	$nid		The Node ID of the clue to load
+ * @param	string	$type		If JavaScript is enabled used AJAX
+ * @return  markup	$output		The rendered clue node || No JavaScript markup
+ *
+ */
+function sonycl_gameplay_agent_intel_response($type = 'ajax'){
+	if( $type == 'ajax' ):
+		$location_node = node_load($_SESSION['locations'][$_SESSION['progress']]['nid']);
+		$output = sonycl_gameplay_render_node($location_node->field_clue_reference['und'][0]['target_id'], TRUE);
+		unset($location_node);
+		
+		
+		if( !empty($output) ):
+			$commands = array();
+			$commands[] = ajax_command_html('#location #cl-clues', render($output));
+			//$commands[] = ajax_command_html('#location #clues', render($output));
+			//$commands[] = ajax_command_invoke('#location #clues', 'show');
+			//$commands[] = ajax_command_invoke('#location #clues .cl-clue-content', 'sonycl_gameplay_scroll');
+			$page = array('#type' => 'ajax', '#commands' => $commands);
+			ajax_deliver($page);
+		endif;
+	else:
+		$output = t("This is some content delivered via a page load.");
+		return $output;
+	endif;
+}
+
+/**
+ *
+ * Ajax response with a rendered social
+ *
+ * @param	number	$nid		The Node ID of the clue to load
+ * @param	string	$type		If JavaScript is enabled used AJAX
+ * @return  markup	$output		The rendered clue node || No JavaScript markup
+ *
+ */
+function sonycl_gameplay_social_intel_response($nid, $type = 'ajax'){
+	if( $type == 'ajax' ):
+	
+		$agent_node = node_load(114); // Grump
+	
+		$output = array(
+			'#prefix' => '<div class="cl-clue-intel-social cl-clue-intel" style="display: none;">',
+			'#suffix' => '</div>',
+			'speech' => array(
+				'#prefix' => '<div class="cl-speech-container">',
+				'#suffix' => '</div>',
+				'header' => array(
+					'#prefix' => '<div class="cl-clue-header">',
+					'#suffix' => '</div>',
+					'#markup' => $agent_node->title.'<small>'.$agent_node->field_job_title['und'][0]['value'].'</small>',
+				),
+				'content' => array(
+					'#prefix' => '<div class="cl-clue-content">',
+					'#suffix' => '</div>',
+					'message' => array(
+						'#prefix' => '<div class="message" id="fb-response-message">',
+						'#suffix' => '</div>',
+						'#markup' => variable_get('sonycl_config_widgets_clues_social_message'),
+					),
+					/*'cta' => array(
+						'#prefix' => '<div id="clue-social-button">',
+						'#suffix' => '</div>',
+						'#markup' => sonycl_gameplay_generate_social_facebook_feed_dialog($nid),
+					),*/
+				),
+				'close' => array(
+					'#prefix' => '<a class="cl-clue-close">',
+					'#suffix' => '</a>',
+					'#markup' =>  '<span class="cl-clue-close-text">'.variable_get('sonycl_config_widgets_clues_social_close').'</span><span class="cl-clue-close-dash">—</span>',
+				),
+				
+			),
+			'agent' => array(
+				'#prefix' => '<div class="cl-character '.strtolower(str_replace(' ','-',$agent_node->title)).'">',
+				'#suffix' => '</div>',
+				'#markup' => theme('image', array('path' => $agent_node->field_agent_image_large['und'][0]['uri'], 'attributes' => array('class' => 'cl-clues-image-large'))),
+			),
+			
+			
+		);
+		
+		
+		/*$output = '<div class="pants">Hello</div>';*/
+		
+		unset($agent_node);
+		
+		if( !empty($output) ):
+			$commands = array();
+			//$commands[] = ajax_command_invoke('#location #cl-clues', 'show');
+			$commands[] = ajax_command_html('#location #cl-clues', render($output));
+			$commands[] = ajax_command_invoke('#location #cl-clues .cl-clue-intel-social', 'hide');
+			//$commands[] = ajax_command_invoke('#location #cl-clues .notreal', 'notclick');
+			//$commands[] = ajax_command_invoke('#clues .cl-clue-content', 'sonycl_gameplay_scroll');
+			//$commands[] = ajax_command_invoke('#clues .cl-clue-intel-social', 'hide');
+			$page = array('#type' => 'ajax', '#commands' => $commands);
+			ajax_deliver($page);
+		endif;
+	else:
+		$output = t("This is some content delivered via a page load.");
+		return $output;
+	endif;
+}
+
+/**
+ *
+ * Ajax response with a rendered social
+ *
+ * @param	number	$nid		The Node ID of the clue to load
+ * @param	string	$type		If JavaScript is enabled used AJAX
+ * @return  markup	$output		The rendered clue node || No JavaScript markup
+ *
+ */
+function sonycl_gameplay_generate_social_facebook_feed_dialog(){
+	$node = node_load($_SESSION['locations'][$_SESSION['progress']]['nid']);
+	if($node->nid):
+		
+			$feed_app_id = 191593130998242;
+			$feed_display = 'popup';
+			$feed_link = variable_get('sonycl_config_url');
+			$feed_picture = file_create_url($node->field_location_macro_image['und'][0]['uri']);
+			$feed_name = variable_get('sonycl_config_widgets_clues_social_fbname');
+			$feed_name = str_replace('"','“',$feed_name);
+			$feed_caption = variable_get('sonycl_config_widgets_clues_social_fbcaption');
+			$feed_caption = str_replace('"','“',$feed_caption);
+			$feed_description = variable_get('sonycl_config_widgets_clues_social_fbdescription');
+			$feed_description = str_replace('"','“',$feed_description);
+			
+			
+			
+			$feed_redirect = $feed_link;
+		/*
+		$feed_options = array();
+		$feed_options[] = 191593130998242;
+		$feed_options[] = 'popup';
+		$feed_options[] = url('/', array('absolute' => TRUE));
+		$feed_options[] = file_create_url($node->field_location_macro_image['und'][0]['uri']);
+		$feed_options[] = variable_get('sonycl_config_widgets_clues_social_fbname');
+		$feed_options[] = variable_get('sonycl_config_widgets_clues_social_fbcaption');
+		$feed_options[] = variable_get('sonycl_config_widgets_clues_social_fbdescription');
+		*/
+		unset($node);
+		
+		//return $feed_options;
+		
+		$js = "postToFeed('$feed_link','$feed_picture','$feed_name','$feed_caption','$feed_description');";
+		//return '<a onclick="'.$js.'" >'.variable_get('sonycl_config_widgets_clues_social_cta').'</a>';
+		return $js;
+	
+	endif;
+}
+
+/**
+ *
+ * Ajax response with a rendered social
+ *
+ * @param	number	$nid		The Node ID of the clue to load
+ * @param	string	$type		If JavaScript is enabled used AJAX
+ * @return  markup	$output		The rendered clue node || No JavaScript markup
+ *
+ */
+function sonycl_gameplay_geo_intel_response($type = 'ajax'){
+	if( $type == 'ajax' ):
+		$agent_node = node_load(115); // Grump
+		
+		$location_node = node_load($_SESSION['locations'][$_SESSION['progress']]['nid']);
+		$location_latitude = $location_node->field_location_latitude['und'][0]['value'];
+		$location_longitude = $location_node->field_location_longitude['und'][0]['value'];
+		unset($location_node);
+		
+		$output = array(
+			'#prefix' => '<div id="cl-map-container">',
+			'#suffix' => '</div>',
+			'speech' => array(
+				'#prefix' => '<div class="cl-speech-container">',
+				'#suffix' => '</div>',
+				'header' => array(
+					'#prefix' => '<div class="cl-clue-header">',
+					'#suffix' => '</div>',
+					'#markup' => $agent_node->title.'<small>'.$agent_node->field_job_title['und'][0]['value'].'</small>',
+				),
+				'content' => array(
+					'#prefix' => '<div class="cl-clue-content">',
+					'#suffix' => '</div>',
+					'message' => array(
+						'#prefix' => '<div class="message">',
+						'#suffix' => '</div>',
+						'#markup' => variable_get('sonycl_config_widgets_clues_geo_message'),
+					),
+					/*'cta' => array(
+						'#prefix' => '<div id="clue-social-button">',
+						'#suffix' => '</div>',
+						'#markup' => sonycl_gameplay_generate_social_facebook_feed_dialog($nid),
+					),*/
+				),
+				'explore' => array(
+					'#prefix' => '<a class="cl-clue-explore">',
+					'#suffix' => '</a>',
+					'#markup' =>  '<span class="cl-clue-explore-text">'.variable_get('sonycl_config_widgets_clues_geo_cta').'</span><span class="cl-clue-close-dash">—</span>',
+				),
+				
+			),
+			'agent' => array(
+				'#prefix' => '<div class="cl-character '.strtolower(str_replace(' ','-',$agent_node->title)).'">',
+				'#suffix' => '</div>',
+				'#markup' => theme('image', array('path' => $agent_node->field_agent_image_large['und'][0]['uri'], 'attributes' => array('class' => 'cl-clues-image-large'))),
+			),
+			'content' => array(
+				'#prefix' => '<div class="cl-map-nav">',
+				'#suffix' => '</div>',
+				/*'info' => array(
+					'#markup' => '<p>Click one of the three markers to explore map clue area closer</p>',
+				),*/
+				'buttons' => array(
+					'#prefix' => '<ul>',
+					'#suffix' => '</ul>',
+					'list' => array(
+						'reset' => array(
+							'#prefix' => '<li>',
+							'#suffix' => '</li>',
+							'#markup' => '<div id="cl-map-nav-back">'.variable_get('sonycl_config_widgets_clues_geo_back_to_full').'</div>',
+						),
+						'close' => array(
+							'#prefix' => '<li>',
+							'#suffix' => '</li>',
+							'#markup' => '<div id="cl-map-nav-close">'.variable_get('sonycl_config_widgets_clues_geo_close').'</div>',
+						),
+					),
+				),
+			),
+			'map' => array(
+				'#markup' => '<div id="map-overlay"></div><div id="map-canvas"></div>',
+			),
+			'pano' => array(
+				'#markup' => '<div id="pano"></div>',
+			),
+		);
+		
+		/*$output = '<div class="pants">Hello</div>';*/
+		
+		$message_array = array(
+			variable_get('sonycl_config_widgets_clues_geo_camera_one'),
+			variable_get('sonycl_config_widgets_clues_geo_camera_two'),
+			variable_get('sonycl_config_widgets_clues_geo_camera_three'),
+		);
+		
+		unset($agent_node);
+		
+		if( !empty($output) ):
+			$commands = array();
+			$commands[] = ajax_command_html('#location #cl-clues', render($output));
+			$commands[] = ajax_command_invoke('#location #cl-clues', "initializeGoogleMap", array(floatval($location_latitude), floatval($location_longitude), $_SESSION['level'], $message_array));
+			//$commands[] = ajax_command_invoke('#clues', 'show');
+			//$commands[] = ajax_command_html('#clues', render($output));
+			//$commands[] = ajax_command_invoke(NULL, "initializeGoogleMap", array(51.5081, 0.0761, $_SESSION['level']) );
+			$page = array('#type' => 'ajax', '#commands' => $commands);
+			ajax_deliver($page);
+		endif;
+
+	else:
+		$output = t("This is some content delivered via a page load.");
+		return $output;
+	endif;
+}
+
+
+
+/**
+ *
+ * Respond with a render array link for the next location
+ *
+ * @param	string	$label		Button label
+ * @return  markup	$output		Link render array || NULL
+ *
+ */
+function sonycl_gameplay_render_clue_link($nid, $type) {
+
+	switch($type):
+		case 'agent':
+			// Load the clue and pull the agent ID
+			$clue_node = node_load($nid);
+			if($clue_node->nid): $agentID = $clue_node->field_agent_reference['und'][0]['target_id']; endif;
+			// Additional variables
+			$title = variable_get('sonycl_config_widgets_clues_agent_headline');
+			$link = 'case/location/agent-intel/nojs/';
+			$bubble = '<div class="cl-speech-container"><div class="cl-clue-content">'.views_trim_text(array('max_length' => 70, 'word_boundary' => true, 'ellipsis' => true, 'html' => true), $clue_node->body['und'][0]['value']).'</div></div>';
+			$onclick = '';
+			break;
+		case 'social':
+			$agentID = 114; // Grump
+			$title = variable_get('sonycl_config_widgets_clues_social_headline');
+			$link = 'case/location/social-intel/'.$nid.'/nojs/';
+			$bubble = '<div class="cl-speech-container"><div class="cl-clue-content">'.variable_get('sonycl_config_widgets_clues_social_popup').'</div></div>';
+			//$onclick = '';
+			$onclick = sonycl_gameplay_generate_social_facebook_feed_dialog();
+			break;
+		case 'geo':
+			$agentID = 115; // Grump
+			$title = variable_get('sonycl_config_widgets_clues_geo_headline');
+			$link = 'case/location/geo-intel/nojs/';
+			$bubble = '<div class="cl-speech-container"><div class="cl-clue-content">'.variable_get('sonycl_config_widgets_clues_geo_popup').'</div></div>';
+			$onclick = '';
+			break;
+		default:
+	endswitch;
+	
+
+	$agent_node = node_load($agentID);
+	if(!empty($agent_node->field_agent_image_small['und'][0]['uri'])):
+	$agent_image_small = theme('image_style', array('path' => $agent_node->field_agent_image_small['und'][0]['uri'], 'style_name' => 'clue-small_100x125')); 
+	endif;
+	
+	//if($type != 'social'):
+		$rand = user_password($length = 4);
+		$build['ajax-link-clue-'.$rand] = array(
+			'#type' => 'link',
+			'#title' => $bubble.'<span class="cl-clues-text">'.$title.'</span><div class="cl-clues-image">'.$agent_image_small.'</div>',
+			'#href' => $link,
+			'#id' => 'ajax-link-'.$type.'-'.$rand,
+			'#options' => array('html' => true, 'attributes' => array('class' => 'cl-clue-button cl-clues-'.$type, 'onclick' => $onclick)),
+			'#ajax' => array(
+				'wrapper' => 'location',
+				'effect' => 'fade',
+				'progress' => array( 'type' => 'throbber', 'message' => '', 'wrapper' => '.cl-container' )
+			),
+		);
+	/*else:
+		$build['social-link'] = array(
+			'#prefix' => '<a href="'.$link.'" onclick="'.sonycl_gameplay_generate_social_facebook_feed_dialog().'" class="cl-clue-button cl-clues-social">',
+			'#suffix' => '</a>',
+			'#markup' => $bubble.'<span class="cl-clues-text">'.$title.'</span><div class="cl-clues-image">'.$agent_image_small.'</div>',
+		);
+	endif;*/
+	
+	unset($agent_node); unset($clue_node);
+	
+	return $build;
+}
+
+
+
+/********************************************************
+// Section: Utilities
+/*******************************************************/
+/**
+ *
+ * Respond with a renderable location node
+ *
+ * @param	number	$nid		The Node ID of the clue to load 
+ * @param	string	$ajax		If this node is rendered through AJAX
+ * @return  markup	$output		A renderable clue node
+ *
+ */
+function sonycl_gameplay_render_node($nid, $ajax = FALSE){
+	$node = node_load($nid, NULL, false);
+	if( $node ):
+		$vnode = node_view($node);
+		if($ajax): $vnode['is_ajax'] = true; endif;
+		$output = theme("node", $vnode);
+		return $output;
+	endif;
+}
+
+/////
+function sonycl_gameplay_get_start_time(){
+	switch($_SESSION['level']):
+		case 0:
+			return variable_get('sonycl_config_game_levels_novice_time_limit');
+			break;
+		case 1:
+			return variable_get('sonycl_config_game_levels_intermediate_time_limit');
+			break;
+		case 2:
+			return variable_get('sonycl_config_game_levels_advanced_time_limit');
+			break;
+	endswitch;
+}
+
+function percent($num_amount, $num_total) {
+ $count1 = $num_amount / $num_total;
+ $count2 = $count1 * 100;
+ $count = number_format($count2, 0);
+ return $count;
+}
+
+
+/********************************************************
+// Section: Overlays
+/*******************************************************/
+
+function sonycl_gameplay_options_menu(){
+	global $base_url;
+	//
+	$list_items = array(
+		render(sonycl_gameplay_options_link(variable_get('sonycl_config_options_leaderboard_label'),'case/overlay/leaderboard/nojs','cl-dialog-leaderboard-link')),
+		render(sonycl_gameplay_options_link(variable_get('sonycl_config_options_about_label'),'case/overlay/about/nojs','cl-dialog-about-link')),
+		'<a class="cl-option-button" id="cl-sound-toggle"><span class="off">'.variable_get('sonycl_config_options_sound_off').'</span><span class="on">'.variable_get('sonycl_config_options_sound_on').'</span></a>',
+	);
+	
+	if(!empty($_SESSION['case'])):
+		array_unshift($list_items, render(sonycl_gameplay_options_link(variable_get('sonycl_config_options_caseinfo_label'),'case/overlay/caseinfo/nojs','cl-dialog-caseinfo-link')));
+		$list_items[] = render(sonycl_gameplay_options_link(variable_get('sonycl_config_options_exit_label'),$base_url,'cl-dialog-exit-link'));
+	endif;
+	
+	$output = array(
+		'#theme' => 'item_list',
+		'#items' => $list_items,
+		'#attributes' => array('class' => array('cl-options-group')),
+	);
+	
+	return $output;
+}
+
+function sonycl_gameplay_options_link($title, $link, $id){
+	global $base_url;
+	if($link == $base_url):
+		$build = l($title, $link, array('attributes' => array('id' => $id)));
+	else:
+	$rand = user_password($length = 4);
+	$build['ajax-link-options-'.$rand] = array(
+		'#type' => 'link',
+		'#title' => $title,
+		'#href' => url($link, array('absolute' => TRUE)),
+		'#id' => $id,
+		'#options' => array('html' => true, 'attributes' => array('class' => 'cl-option-button')),
+		'#ajax' => array(
+			'wrapper' => 'overlays',
+			'effect' => 'fade',
+			'progress' => array( 'type' => 'throbber', 'message' => '', 'wrapper' => '.cl-container' )
+		),
+	);
+	endif;
+	
+	return $build;
+}
+
+function sonycl_gameplay_overlay_caseinfo($type = 'ajax'){
+	if( $type == 'ajax' ):
+		
+		$criminal_node = node_load($_SESSION['criminal']);
+		
+		$output = array(
+			'content' => array(
+				'#prefix' => '<div id="cl-dialog-caseinfo-content">',
+				'#suffix' => '</div>',
+				'close' => array(
+					'#markup' => '<div class="close"></div>',
+				),
+				'header' => array(
+					'#prefix' => '<h3>',
+					'#suffix' => '</h3>',
+					'#markup' => variable_get('sonycl_config_options_caseinfo_label'),
+				),
+				'content' => array(
+					'#prefix' => '<div class="cl-dialog-content">',
+					'#suffix' => '</div>',
+					'header' => array(
+						'#prefix' => '<div class="cl-briefing-header">',
+						'#suffix' => '</div>',
+						'#markup' => theme('image', array('path' => $criminal_node->field_criminal_image['und'][0]['uri'])).$_SESSION['case-info']['header'],
+					),
+					'text' => array(
+						'#prefix' => '<div class="cl-briefing-text">',
+						'#suffix' => '</div>',
+						'#markup' => $_SESSION['case-info']['content'],
+					),
+				),
+			),
+		);
+		
+		unset($criminal_node);
+		
+		if( !empty($output) ):
+			$commands = array();
+			$commands[] = ajax_command_html('#overlays', render($output));
+			$commands[] = ajax_command_invoke('#overlays', 'sonycl_gameplay_overlay_display');
+			$page = array('#type' => 'ajax', '#commands' => $commands);
+			ajax_deliver($page);
+		endif;
+
+	else:
+		$output = t("This is some content delivered via a page load.");
+		return $output;
+	endif;
+}
+
+function sonycl_gameplay_overlay_about($type = 'ajax'){
+	if( $type == 'ajax' ):
+		$output = array(
+			
+			'content' => array(
+				'#prefix' => '<div id="cl-dialog-about-content" >',
+				'#suffix' => '</div>',
+				'close' => array(
+					'#markup' => '<div class="close"></div>',
+				),
+				'header' => array(
+					'#prefix' => '<h3>',
+					'#suffix' => '</h3>',
+					'#markup' => variable_get('sonycl_config_options_about_label'),
+				),
+				'content' => array(
+					'#prefix' => '<div class="cl-dialog-content">',
+					'#suffix' => '</div>',
+					'#markup' => variable_get('sonycl_config_options_about_body'),
+				),
+			),
+		);
+		
+		if( !empty($output) ):
+			$commands = array();
+			$commands[] = ajax_command_html('#overlays', render($output));
+			$commands[] = ajax_command_invoke('#overlays', 'sonycl_gameplay_overlay_display');
+			$page = array('#type' => 'ajax', '#commands' => $commands);
+			ajax_deliver($page);
+		endif;
+
+	else:
+		$output = t("This is some content delivered via a page load.");
+		return $output;
+	endif;
+}
+
+function sonycl_gameplay_overlay_leaderboard($type = 'ajax'){
+	if( $type == 'ajax' ):
+	
+	
+		$query = db_select('sonycl_gameplay_top_scores','ts');
+		$query->fields('ts', array('name','level','score'));
+		$query->addExpression('ABS(ts.score)','trueScore');
+		$query->orderBy('trueScore','DESC');
+		$query->range(0,20);
+		$result = $query->execute();
+		$leaderboard_rows = array();
+		
+		
+		
+		foreach($result as $key=>$record):
+		
+			switch($record->level):
+				case 0:
+					$level = variable_get('sonycl_config_game_levels_novice_label');
+					break;
+				case 1:
+					$level = variable_get('sonycl_config_game_levels_intermediate_label');
+					break;
+				case 2:
+					$level = variable_get('sonycl_config_game_levels_advanced_label');
+					break;
+				default:
+					$level = '??';
+			endswitch;
+		
+			$row = array(
+				array('data' => $key+1),
+				array('data' => $record->name),
+				array('data' => $level),
+				array('data' => $record->score),
+			);
+			$leaderboard_rows[] = $row;
+		endforeach;
+	
+		$output = array(
+			
+			'content' => array(
+				'#prefix' => '<div id="cl-dialog-about-content">',
+				'#suffix' => '</div>',
+				'close' => array(
+					'#markup' => '<div class="close"></div>',
+				),
+				'header' => array(
+					'#prefix' => '<h3>',
+					'#suffix' => '</h3>',
+					'#markup' => variable_get('sonycl_config_options_leaderboard_label'),
+				),
+				'content' => array(
+					'#prefix' => '<div class="cl-dialog-content">',
+					'#suffix' => '</div>',
+					'content' => array(
+						'#theme' => 'table',
+						'#header' => array(
+							variable_get('sonycl_config_options_leaderboard_rank'),
+							variable_get('sonycl_config_options_leaderboard_player'),
+							variable_get('sonycl_config_options_leaderboard_level'),
+							variable_get('sonycl_config_options_leaderboard_score'),
+						),
+						'#rows' => $leaderboard_rows,
+					)
+				),
+			),
+		);
+		
+		if( !empty($output) ):
+			$commands = array();
+			$commands[] = ajax_command_html('#overlays', render($output));
+			$commands[] = ajax_command_invoke('#overlays', 'sonycl_gameplay_overlay_display');
+			$page = array('#type' => 'ajax', '#commands' => $commands);
+			ajax_deliver($page);
+		endif;
+
+	else:
+		$output = t("This is some content delivered via a page load.");
+		return $output;
+	endif;
+
+}
+
+
+?>
